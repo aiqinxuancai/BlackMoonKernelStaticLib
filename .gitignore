@@ -1,13 +1,70 @@
-*.ncb
-*.opt
-*.plg
+# Visual Studio and MSBuild user state
+.vs/
 *.suo
-.vs/*
-Release/*
-Debug/*
+*.user
+*.ncb
+*.sdf
+*.opensdf
+*.opendb
+*.VC.db
+*.VC.VC.opendb
+*.pdb
+*.idb
+*.ilk
+*.ipch/
+*.tlog/
+*.lastbuildstate
+*.recipe
+*.log
+
+# Generated compiler/linker output.  Release archives are published by the
+# GitHub workflow and must not be committed to the source repository.
+[Bb]in/
+[Oo]bj/
+Debug/
+Release/
+ReleaseDll/
+x64/
+Win32/
+Project/krnln/
+Project/x64/
+Project/Release/
+Project/ReleaseDll/
+Project/Debug/
 Project/krnln_VS2005.vcproj.*
 Project/krnln_VS2005_Obj.vcproj.*
 Project/*.plg
-Project/Release/*
-Project/ReleaseDll/*
-Project/Debug/*
+
+# Release staging, x64 adapter work trees, and local verification output
+adapter/
+artifacts/
+_verify/
+.build/
+.adapter-build/
+
+# Binary products and intermediate objects are supplied as build/release
+# artifacts, except for the two historical data objects required by the
+# source adapter (they are already tracked and explicitly kept below).
+*.lib
+*.dll
+*.fne
+*.exp
+*.res
+*.obj
+!krnln/PY.OBJ
+!krnln/Diskid32.obj
+
+# Legacy IDE temporary files
+*.ncb
+*.opt
+*.plg
+*.aps
+*.clw
+*.bak
+*.tmp
+*.~*
+
+# Operating-system/editor noise
+.DS_Store
+Thumbs.db
+desktop.ini

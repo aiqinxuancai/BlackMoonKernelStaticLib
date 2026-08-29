@@ -1,0 +1,30 @@
+name: BlackMoonKernelStaticLib validation
+
+"on":
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  legacy-win32-release:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      # LegacyOnly performs the same CP936 -> UTF-8 staging used by the
+      # release workflow, so this check is independent of the runner ACP.
+      - name: Build legacy Win32 release archive
+        shell: pwsh
+        run: |
+          $OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+          cmd.exe /c 'chcp 936>nul'
+          & .\scripts\BuildBlackMoonRelease.ps1 `
+            -LegacyOnly `
+            -OutputRoot .\artifacts\ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

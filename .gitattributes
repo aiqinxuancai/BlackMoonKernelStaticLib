@@ -1,0 +1,24 @@
+# Keep the legacy source byte representation and line endings stable.  The
+# source is CP936/GBK; charset selection is made explicitly by the projects.
+* text=auto
+*.cpp text eol=crlf
+*.h text eol=crlf
+*.rc text eol=crlf
+*.rc2 text eol=crlf
+*.def text eol=crlf
+*.vcxproj text eol=crlf
+*.filters text eol=crlf
+*.sln text eol=crlf
+*.dsp text eol=crlf
+*.dsw text eol=crlf
+*.ps1 text eol=crlf
+*.md text eol=crlf
+*.txt text eol=crlf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.lib binary
+*.dll binary
+*.fne binary
+*.obj binary
+*.pdb binary
+*.png binary

@@ -1,0 +1,107 @@
+name: BlackMoonKernelStaticLib release
+
+"on":
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      modern_core_ref:
+        description: 'ycIDE-electron commit or tag used for the x64 ABI fallback and FNE metadata'
+        required: false
+        default: 'a1e45277fef25ac7480f40d66083aef31a924944'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: blackmoon-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-release:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - name: Checkout BlackMoonKernelStaticLib
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # The modern core is an explicit build input, not a machine-local path.
+      # Its source supplies the x64-compatible fallback and the matching FNE
+      # metadata used by the adapter manifest.
+      - name: Checkout modern core dependency
+        uses: actions/checkout@v4
+        with:
+          repository: chungbinb/ycIDE-electron
+          ref: ${{ inputs.modern_core_ref || 'a1e45277fef25ac7480f40d66083aef31a924944' }}
+          path: dependencies/ycIDE-electron
+          fetch-depth: 1
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build both architectures and create packages
+        shell: pwsh
+        run: |
+          # Keep PowerShell/GitHub log transport UTF-8 while the project and
+          # legacy adapter explicitly handle CP936 input sources.
+          $OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+          cmd.exe /c 'chcp 936>nul'
+          $releaseVersion = if ($env:GITHUB_REF_NAME) { $env:GITHUB_REF_NAME } else { 'local' }
+          & "$PWD\scripts\BuildBlackMoonRelease.ps1" `
+            -ModernCoreRoot "$PWD\dependencies\ycIDE-electron" `
+            -MetadataRoot "$PWD\dependencies\ycIDE-electron" `
+            -Version $releaseVersion `
+            -OutputRoot "$PWD\artifacts\release"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Resolve release channel
+        id: release_channel
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $tag = $env:RELEASE_TAG
+          # BuildBlackMoonRelease.ps1 applies the same SemVer/legacy-label
+          # rule to the package manifest.  Read that value instead of keeping
+          # a second, potentially divergent tag parser in this workflow.
+          $manifestPath = Join-Path $PWD 'artifacts\release\blackmoon-package.json'
+          if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+            throw "release manifest not found: $manifestPath"
+          }
+          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          if ([string]$manifest.version -ne $tag) {
+            throw "release manifest version '$($manifest.version)' does not match tag '$tag'"
+          }
+          if ($null -eq $manifest.prerelease) {
+            throw 'release manifest has no prerelease field; refusing to publish an ambiguous channel'
+          }
+          $isPrerelease = [bool]$manifest.prerelease
+          $prerelease = if ($isPrerelease) { 'true' } else { 'false' }
+          $makeLatest = if ($isPrerelease) { 'false' } else { 'true' }
+          "prerelease=$prerelease" >> $env:GITHUB_OUTPUT
+          "make_latest=$makeLatest" >> $env:GITHUB_OUTPUT
+          Write-Host "Release tag: $tag; prerelease=$prerelease; make_latest=$makeLatest"
+
+      - name: Upload release packages as workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlackMoonKernelStaticLib-${{ github.ref_name }}
+          path: artifacts/release/*.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          prerelease: ${{ steps.release_channel.outputs.prerelease }}
+          make_latest: ${{ steps.release_channel.outputs.make_latest }}
+          fail_on_unmatched_files: true
+          files: |
+            artifacts/release/*.zip
