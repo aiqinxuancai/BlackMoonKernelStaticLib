@@ -50,6 +50,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s artifacts/vc6/krnln.lib
+          test "$(find artifacts/vc6/obj -maxdepth 1 -type f -name '*.obj' | wc -l)" -eq 237
           find artifacts/vc6 -maxdepth 2 -type f -printf '%p %s bytes\n' | sort
 
       - name: Upload VC6 probe files

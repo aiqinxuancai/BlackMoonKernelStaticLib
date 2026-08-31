@@ -11,6 +11,7 @@ set "SOURCE_LIST=%OUTPUT_ROOT%\sources.lst"
 set "RESPONSE_FILE=%OUTPUT_ROOT%\krnln-vc6.rsp"
 set "LOG_PATH=%OUTPUT_ROOT%\logs\krnln-vc6.log"
 set "VC6_ROOT=Z:\opt\vc"
+set "EXPECTED_OBJECT_COUNT=237"
 
 if not exist "%SOURCE_ROOT%\krnln_VC6.dsw" (
   echo VC6 workspace not found: %SOURCE_ROOT%\krnln_VC6.dsw
@@ -50,22 +51,35 @@ set "PATH=%VC6_ROOT%\BIN;%PATH%"
 set "INCLUDE=%VC6_ROOT%\INCLUDE"
 set "LIB=%VC6_ROOT%\LIB"
 set "COMMON_FLAGS=/nologo /MT /W3 /GX /O2 /D WIN32 /D NDEBUG /D _WINDOWS /D _MBCS /FD /c"
+set /a COMPILED_SOURCE_COUNT=0
 
 > "%RESPONSE_FILE%" echo /nologo
 >> "%RESPONSE_FILE%" echo /out:"%OUTPUT_ROOT%\krnln.lib"
 
 echo Building krnln - Win32 Release with VC6 CL.EXE and LIB.EXE...
-call :CompileSource "%SOURCE_ROOT%\krnln\StdAfx.cpp" "%OBJECT_ROOT%\StdAfx.obj" /Ycstdafx.h
+call :CompileSource "%SOURCE_ROOT%\krnln\StdAfx.cpp" /Ycstdafx.h
 if errorlevel 1 goto :build_failed
 
 for /f "usebackq delims=" %%S in ("%SOURCE_LIST%") do (
   set "RELATIVE_SOURCE=%%S"
   for %%I in ("%SOURCE_ROOT%\Project\!RELATIVE_SOURCE!") do set "SOURCE_FILE=%%~fI"
   if /I not "!SOURCE_FILE!"=="%SOURCE_ROOT%\krnln\StdAfx.cpp" (
-    for %%I in ("!SOURCE_FILE!") do set "OBJECT_FILE=%OBJECT_ROOT%\%%~nI.obj"
-    call :CompileSource "!SOURCE_FILE!" "!OBJECT_FILE!" /Yustdafx.h
+    call :CompileSource "!SOURCE_FILE!" /Yustdafx.h
     if errorlevel 1 goto :build_failed
   )
+)
+
+if not "%COMPILED_SOURCE_COUNT%"=="%EXPECTED_OBJECT_COUNT%" (
+  echo Expected %EXPECTED_OBJECT_COUNT% VC6 source compilations, got %COMPILED_SOURCE_COUNT%.
+  set "BUILD_EXIT=3"
+  goto :build_failed
+)
+set /a OBJECT_FILE_COUNT=0
+for %%I in ("%OBJECT_ROOT%\*.obj") do set /a OBJECT_FILE_COUNT+=1
+if not "%OBJECT_FILE_COUNT%"=="%EXPECTED_OBJECT_COUNT%" (
+  echo Expected %EXPECTED_OBJECT_COUNT% VC6 object files, got %OBJECT_FILE_COUNT%.
+  set "BUILD_EXIT=3"
+  goto :build_failed
 )
 
 if not exist "%SOURCE_ROOT%\krnln\Diskid32.obj" (
@@ -93,13 +107,12 @@ echo VC6 core build completed: %OUTPUT_ROOT%\krnln.lib
 exit /b 0
 
 :CompileSource
-set "SOURCE_FILE=%~1"
-set "OBJECT_FILE=%~2"
-set "PCH_FLAG=%~3"
+set "PCH_FLAG=%~2"
 echo [VC6] %~nx1
-cl.exe %COMMON_FLAGS% %PCH_FLAG% /Fp"%OBJECT_ROOT%\krnln.pch" /Fo"%OBJECT_FILE%" "%SOURCE_FILE%" >> "%LOG_PATH%" 2>&1
+cl.exe %COMMON_FLAGS% %PCH_FLAG% /Fp"%OBJECT_ROOT%\krnln.pch" /Fo"%OBJECT_ROOT%\%~n1.obj" "%~f1" >> "%LOG_PATH%" 2>&1
 if errorlevel 1 exit /b 1
->> "%RESPONSE_FILE%" echo "%OBJECT_FILE%"
+>> "%RESPONSE_FILE%" echo "%OBJECT_ROOT%\%~n1.obj"
+set /a COMPILED_SOURCE_COUNT+=1
 exit /b 0
 
 :build_failed
