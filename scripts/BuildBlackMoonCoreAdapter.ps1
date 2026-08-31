@@ -1,4 +1,5 @@
 ﻿param(
+    [ValidateSet('x86', 'x64')][string]$Architecture = 'x64',
     [string]$SourceRoot = '',
     [string]$ModernCoreRoot = '',
     [string]$FallbackLibrary = '',
@@ -29,7 +30,7 @@ if ([string]::IsNullOrWhiteSpace($SourceRoot)) {
     $SourceRoot = Join-Path $repositoryRoot 'krnln'
 }
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
-    $OutputRoot = Join-Path $repositoryRoot 'adapter\static_lib\x64'
+    $OutputRoot = Join-Path $repositoryRoot (Join-Path 'adapter\static_lib' $Architecture)
 }
 if ([string]::IsNullOrWhiteSpace($WorkRoot)) {
     $WorkRoot = Join-Path (Split-Path -Parent $OutputRoot) '.adapter-build'
@@ -38,10 +39,10 @@ if ([string]::IsNullOrWhiteSpace($ModernCoreRoot)) {
     throw '必须通过 -ModernCoreRoot 指定匹配的现代核心源码目录。'
 }
 if ([string]::IsNullOrWhiteSpace($FallbackLibrary) -and -not [string]::IsNullOrWhiteSpace($ModernCoreRoot)) {
-    $FallbackLibrary = Join-Path $ModernCoreRoot 'static_lib\x64\krnln_static.lib'
+    $FallbackLibrary = Join-Path $ModernCoreRoot (Join-Path (Join-Path 'static_lib' $Architecture) 'krnln_static.lib')
 }
 if ([string]::IsNullOrWhiteSpace($MetadataFne) -and -not [string]::IsNullOrWhiteSpace($ModernCoreRoot)) {
-    $MetadataFne = Join-Path $ModernCoreRoot 'lib\x64\krnln.fne'
+    $MetadataFne = Join-Path $ModernCoreRoot (Join-Path (Join-Path 'lib' $Architecture) 'krnln.fne')
 }
 $resolvedOutputRoot = [IO.Path]::GetFullPath($OutputRoot).TrimEnd('\')
 $resolvedWorkRoot = [IO.Path]::GetFullPath($WorkRoot).TrimEnd('\')
@@ -49,20 +50,25 @@ if ([String]::Equals($resolvedOutputRoot, $resolvedWorkRoot, [StringComparison]:
     throw 'WorkRoot 不能与 OutputRoot 相同。'
 }
 
-function Find-X64Compiler {
-    param([string]$RequestedPath)
+function Find-TargetCompiler {
+    param(
+        [string]$RequestedPath,
+        [ValidateSet('x86', 'x64')][string]$TargetArchitecture
+    )
 
     if (-not [string]::IsNullOrWhiteSpace($RequestedPath)) {
         if (-not (Test-Path -LiteralPath $RequestedPath -PathType Leaf)) {
-            throw "指定的 x64 编译器不存在: $RequestedPath"
+            throw "指定的 $TargetArchitecture 编译器不存在: $RequestedPath"
         }
         return (Resolve-Path -LiteralPath $RequestedPath).Path
     }
 
     if (-not [string]::IsNullOrWhiteSpace($env:VCToolsInstallDir)) {
-        $candidate = Join-Path $env:VCToolsInstallDir 'bin\Hostx64\x64\cl.exe'
-        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-            return $candidate
+        foreach ($host in @('Hostx64', 'Hostx86')) {
+            $candidate = Join-Path $env:VCToolsInstallDir ("bin\{0}\{1}\cl.exe" -f $host, $TargetArchitecture)
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+                return $candidate
+            }
         }
     }
 
@@ -70,12 +76,12 @@ function Find-X64Compiler {
     $candidates = foreach ($vsRoot in $vsRoots) {
         if (Test-Path -LiteralPath $vsRoot -PathType Container) {
             Get-ChildItem -LiteralPath $vsRoot -Recurse -Filter 'cl.exe' -File -ErrorAction SilentlyContinue |
-                Where-Object { $_.FullName -match '\\VC\\Tools\\MSVC\\[^\\]+\\bin\\Hostx64\\x64\\cl\.exe$' }
+                Where-Object { $_.FullName -match ("\\VC\\Tools\\MSVC\\[^\\]+\\bin\\Host(?:x64|x86)\\{0}\\cl\.exe$" -f $TargetArchitecture) }
         }
     }
     $candidates = $candidates | Sort-Object FullName -Descending
     if ($candidates.Count -eq 0) {
-        throw '未找到 MSVC Hostx64/x64 cl.exe。请安装 C++ x64 工具集或传入 -CompilerPath。'
+        throw "未找到 MSVC $TargetArchitecture cl.exe。请安装对应 C++ 工具集或传入 -CompilerPath。"
     }
     return $candidates[0].FullName
 }
@@ -223,10 +229,10 @@ if (-not (Test-Path -LiteralPath $FallbackLibrary -PathType Leaf)) {
     throw "标准 ABI 兼容核心不存在: $FallbackLibrary"
 }
 if (-not (Test-Path -LiteralPath $MetadataFne -PathType Leaf)) {
-    throw "匹配的 x64 核心 FNE 不存在: $MetadataFne"
+    throw "匹配的 $Architecture 核心 FNE 不存在: $MetadataFne"
 }
 
-$compiler = Find-X64Compiler $CompilerPath
+$compiler = Find-TargetCompiler -RequestedPath $CompilerPath -TargetArchitecture $Architecture
 $compilerDirectory = Split-Path -Parent $compiler
 $libraryManager = Join-Path $compilerDirectory 'lib.exe'
 if (-not (Test-Path -LiteralPath $libraryManager -PathType Leaf)) {
@@ -247,19 +253,19 @@ $includeDirectories = @(
     (Join-Path $kitRoot "Include\$kitVersion\um")
 )
 $libraryDirectories = @(
-    (Join-Path $vcTools 'lib\x64'),
-    (Join-Path $kitRoot "Lib\$kitVersion\ucrt\x64"),
-    (Join-Path $kitRoot "Lib\$kitVersion\um\x64")
+    (Join-Path $vcTools (Join-Path 'lib' $Architecture)),
+    (Join-Path $kitRoot ("Lib\{0}\ucrt\{1}" -f $kitVersion, $Architecture)),
+    (Join-Path $kitRoot ("Lib\{0}\um\{1}" -f $kitVersion, $Architecture))
 )
 foreach ($path in $includeDirectories + $libraryDirectories) {
     if (-not (Test-Path -LiteralPath $path -PathType Container)) {
-        throw "x64 工具链目录不存在: $path"
+        throw "$Architecture 工具链目录不存在: $path"
     }
 }
 
 New-Item -ItemType Directory -Path $OutputRoot -Force | Out-Null
 $adapterProductRoot = Split-Path -Parent (Split-Path -Parent $OutputRoot)
-$metadataDirectory = Join-Path $adapterProductRoot 'lib\x64'
+$metadataDirectory = Join-Path $adapterProductRoot (Join-Path 'lib' $Architecture)
 New-Item -ItemType Directory -Path $metadataDirectory -Force | Out-Null
 Copy-Item -LiteralPath $MetadataFne -Destination (Join-Path $metadataDirectory 'krnln.fne') -Force
     $workRoot = [IO.Path]::GetFullPath($WorkRoot)
@@ -289,8 +295,8 @@ try {
 
     # First generation discovers every source whose command name can be
     # matched to the target FNE metadata. The compiler then decides which
-    # implementations are x64-safe; no command-specific behavior is coded
-    # into this script.
+    # implementations are valid for the selected architecture; no
+    # command-specific behavior is coded into this script.
     & $generator -SourceRoot $SourceRoot -OutputRoot $workRoot -ModernCoreRoot $ModernCoreRoot -TargetSymbolMapPath $targetSymbolMap | Out-Null
     if (-not $?) {
         throw '生成 BlackMoon 核心适配源码失败。'
@@ -308,7 +314,7 @@ try {
     foreach ($sourceName in $candidateSources) {
         $sourcePath = Join-Path $workRoot $sourceName
         $objectPath = Join-Path $probeDirectory (($sourceName -replace '\.cpp$', '.obj'))
-        $probe = Invoke-AdapterCompile -Compiler $compiler -Source $sourcePath -Object $objectPath -IncludeDirectories @($workRoot) -RejectPointerNarrowing
+        $probe = Invoke-AdapterCompile -Compiler $compiler -Source $sourcePath -Object $objectPath -IncludeDirectories @($workRoot) -RejectPointerNarrowing:($Architecture -eq 'x64')
         if ($probe.Success) {
             $eligibleSources.Add($sourceName)
             continue
@@ -320,14 +326,14 @@ try {
         })
     }
     if ($eligibleSources.Count -eq 0) {
-        throw '没有可用于 x64 的 BlackMoon 核心实现。'
+        throw "没有可用于 $Architecture 的 BlackMoon 核心实现。"
     }
 
     $eligiblePath = Join-Path $workRoot 'adapter-eligible-sources.txt'
     [IO.File]::WriteAllLines($eligiblePath, $eligibleSources, [Text.UTF8Encoding]::new($true))
     & $generator -SourceRoot $SourceRoot -OutputRoot $workRoot -ModernCoreRoot $ModernCoreRoot -EligibleSourcesPath $eligiblePath -TargetSymbolMapPath $targetSymbolMap | Out-Null
     if (-not $?) {
-        throw '根据 x64 能力检查重新生成适配源码失败。'
+        throw "根据 $Architecture 能力检查重新生成适配源码失败。"
     }
 
     $legacyObjectDirectory = Join-Path $workRoot 'objects\legacy'
@@ -342,7 +348,7 @@ try {
     foreach ($sourceName in $selectedSources) {
         $sourcePath = Join-Path $workRoot $sourceName
         $objectPath = Join-Path $legacyObjectDirectory (($sourceName -replace '\.cpp$', '.obj'))
-        $result = Invoke-AdapterCompile -Compiler $compiler -Source $sourcePath -Object $objectPath -IncludeDirectories @($workRoot) -RejectPointerNarrowing
+        $result = Invoke-AdapterCompile -Compiler $compiler -Source $sourcePath -Object $objectPath -IncludeDirectories @($workRoot) -RejectPointerNarrowing:($Architecture -eq 'x64')
         if (-not $result.Success) {
             throw "编译 BlackMoon 适配源码失败: $sourceName`n$($result.Output -join "`n")"
         }
@@ -366,11 +372,12 @@ try {
     # the archive members through a response file to stay below CreateProcess'
     # command-line limit on Windows.
     $archiveResponse = Join-Path $workRoot 'archive.rsp'
-    $archiveArguments = @('/NOLOGO', '/MACHINE:X64', ('/OUT:"' + $archive + '"')) + @($objects | ForEach-Object { '"' + $_ + '"' })
+    $machine = if ($Architecture -eq 'x64') { 'X64' } else { 'X86' }
+    $archiveArguments = @('/NOLOGO', ('/MACHINE:' + $machine), ('/OUT:"' + $archive + '"')) + @($objects | ForEach-Object { '"' + $_ + '"' })
     [IO.File]::WriteAllLines($archiveResponse, $archiveArguments, [Text.Encoding]::Unicode)
     $archiveOutput = & $libraryManager ('@' + $archiveResponse) 2>&1
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $archive -PathType Leaf)) {
-        throw "生成 BlackMoon x64 核心静态库失败:`n$($archiveOutput -join "`n")"
+        throw "生成 BlackMoon $Architecture 核心静态库失败:`n$($archiveOutput -join "`n")"
     }
 
     # The modern compatibility archive keeps every core command in one object
@@ -391,7 +398,7 @@ try {
     # duplicate command definitions.
     $archiveSymbolOutput = @(& $coffDumper '/linkermember:1' $archive 2>&1 | ForEach-Object { [string]$_ })
     if ($LASTEXITCODE -ne 0) {
-        throw "读取 BlackMoon x64 主归档符号失败:`n$($archiveSymbolOutput -join "`n")"
+        throw "读取 BlackMoon $Architecture 主归档符号失败:`n$($archiveSymbolOutput -join "`n")"
     }
     foreach ($match in [regex]::Matches(($archiveSymbolOutput -join "`n"), '(?m)^\s*[0-9A-F]+\s+krnln_[A-Za-z0-9_]+_(\d+)_krnln\s*$')) {
         [void]$adapterCommandIndexes.Add([int]$match.Groups[1].Value)
@@ -446,12 +453,12 @@ try {
     }
     $manifest = [ordered]@{
         formatVersion = 1
-        architecture = 'x64'
+        architecture = $Architecture
         abi = 'ecompiler-fne-execute-v1'
         primaryArchive = 'krnln_static.lib'
         fallbackArchive = 'krnln_fallback.lib'
 		fallbackRequired = $true
-		metadataFile = '../../lib/x64/krnln.fne'
+		metadataFile = ('../../lib/{0}/krnln.fne' -f $Architecture)
         source = 'BlackMoonKernelStaticLib'
         sourceRoot = 'krnln'
         adapterCommandCount = $adapterCommandIndexes.Count
