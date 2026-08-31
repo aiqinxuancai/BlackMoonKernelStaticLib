@@ -8,8 +8,7 @@ permissions:
 
 jobs:
   build-vc6-core:
-    # Experimental only. The image is not an official Microsoft distribution;
-    # keep this separate from tag publishing until the build is verified.
+    # Manual diagnostics for the pinned VC6/Wine toolchain used by release.yml.
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:

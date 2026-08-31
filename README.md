@@ -45,7 +45,8 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 和 `-X64FallbackLibrary` 显式覆盖 Action 默认构建的依赖；不要把不同版本的
 FNE 与静态归档混用。
 
-产物位于 `artifacts/release/`，包含合并包以及独立的 x86/x64 zip。
+产物位于 `artifacts/release/`，包含合并包以及独立的 x86/x64 zip。Tag 发布还会
+附加独立的 `-vc6.zip`，其中包含由 VC6 构建的 Win32 `krnln.lib` 与构建清单。
 合并包同时提供根级 `lib/`、`static_lib/` 投影，解压后可直接叠加到
 e-packager 产品目录；也可以只使用 `adapter/` 子目录。对 x64 e-packager
 传入解压后的 `adapter` 目录：

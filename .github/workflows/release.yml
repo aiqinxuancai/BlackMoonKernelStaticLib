@@ -19,7 +19,101 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  build-vc6:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout BlackMoonKernelStaticLib
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Generate VC6 DSP source list
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/vc6
+          awk -F= '/^SOURCE=.*\.cpp"/ { source = $2; gsub(/"/, "", source); print source }' \
+            Project/krnln_VC6.dsp > artifacts/vc6/sources.lst
+          test "$(wc -l < artifacts/vc6/sources.lst)" -eq 237
+
+      - name: Verify VC6 container tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            giulioz/vc6-docker@sha256:dc7f878014f065fe17af5ed758d9a415fe20afcf913170e82052e8c32d3b45af \
+            bash -lc 'wine --version && test -f /opt/vc/BIN/CL.EXE && test -f /opt/vc/BIN/LIB.EXE && test -d /opt/vc/INCLUDE && test -d /opt/vc/LIB'
+
+      - name: Build VC6 krnln release library
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --volume "${GITHUB_WORKSPACE}:/workspace" \
+            --workdir /workspace \
+            giulioz/vc6-docker@sha256:dc7f878014f065fe17af5ed758d9a415fe20afcf913170e82052e8c32d3b45af \
+            bash -lc 'wine cmd /c "call Z:\\workspace\\scripts\\BuildBlackMoonVc6.cmd"'
+
+      - name: Verify VC6 output
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s artifacts/vc6/krnln.lib
+          test "$(find artifacts/vc6/obj -maxdepth 1 -type f -name '*.obj' | wc -l)" -eq 237
+
+      - name: Package VC6 release library
+        id: vc6_package
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+          REVISION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          release_version="${RELEASE_VERSION:-local}"
+          safe_version="$(printf '%s' "$release_version" | sed 's/[^A-Za-z0-9_.-]/-/g')"
+          package_name="BlackMoonKernelStaticLib-${safe_version}-vc6.zip"
+          package_root="artifacts/vc6/package"
+          rm -rf "$package_root"
+          mkdir -p "$package_root"
+          cp artifacts/vc6/krnln.lib "$package_root/krnln.lib"
+          cp LICENSE "$package_root/LICENSE"
+          sha256="$(sha256sum "$package_root/krnln.lib" | awk '{print $1}')"
+          bytes="$(stat -c '%s' "$package_root/krnln.lib")"
+          jq -n \
+            --arg version "$release_version" \
+            --arg revision "$REVISION" \
+            --arg sha256 "$sha256" \
+            --arg container 'giulioz/vc6-docker@sha256:dc7f878014f065fe17af5ed758d9a415fe20afcf913170e82052e8c32d3b45af' \
+            --argjson bytes "$bytes" \
+            '{formatVersion: 1, product: "BlackMoonKernelStaticLib", version: $version, architecture: "x86", compiler: "Visual C++ 6.0", configuration: "Release", workspace: "krnln_VC6.dsw", sourceProject: "Project/krnln_VC6.dsp", containerImage: $container, revision: $revision, files: {"krnln.lib": {sha256: $sha256, bytes: $bytes}}}' \
+            > "$package_root/blackmoon-vc6-package.json"
+          printf '%s\n' \
+            '# BlackMoonKernelStaticLib VC6 release' \
+            '' \
+            'This archive contains the Win32 krnln.lib built with Visual C++ 6.0.' \
+            'See blackmoon-vc6-package.json for the pinned build environment and file hash.' \
+            > "$package_root/README.md"
+          (
+            cd "$package_root"
+            zip -q -9 "../$package_name" krnln.lib LICENSE README.md blackmoon-vc6-package.json
+          )
+          test -s "artifacts/vc6/$package_name"
+          "package_name=$package_name" >> "$GITHUB_OUTPUT"
+
+      - name: Upload VC6 release package for publishing
+        uses: actions/upload-artifact@v4
+        with:
+          name: blackmoon-vc6-release-package
+          path: artifacts/vc6/${{ steps.vc6_package.outputs.package_name }}
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
   build-release:
+    needs: build-vc6
     runs-on: windows-2022
     timeout-minutes: 45
     steps:
@@ -57,6 +151,12 @@ jobs:
             -OutputRoot "$PWD\artifacts\release"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Download VC6 release package
+        uses: actions/download-artifact@v4
+        with:
+          name: blackmoon-vc6-release-package
+          path: artifacts/release
+
       - name: Resolve release packages
         id: release_packages
         shell: pwsh
@@ -78,6 +178,7 @@ jobs:
             combined = "$baseName.zip"
             x86 = "$baseName-x86.zip"
             x64 = "$baseName-x64.zip"
+            vc6 = "$baseName-vc6.zip"
           }
           $expectedNames = @($expectedPackages.Values | ForEach-Object { [string]$_ })
           $actualPackages = @(Get-ChildItem -LiteralPath $releaseRoot -Filter 'BlackMoonKernelStaticLib-*.zip' -File |
@@ -85,7 +186,7 @@ jobs:
           $missing = @($expectedNames | Where-Object { -not (Test-Path -LiteralPath (Join-Path $releaseRoot $_) -PathType Leaf) })
           $unexpected = @($actualPackages | Where-Object { $_.Name -notin $expectedNames })
 
-          if ($actualPackages.Count -ne 3 -or $missing.Count -gt 0 -or $unexpected.Count -gt 0) {
+          if ($actualPackages.Count -ne 4 -or $missing.Count -gt 0 -or $unexpected.Count -gt 0) {
             $found = if ($actualPackages.Count -gt 0) { $actualPackages.Name -join ', ' } else { '<none>' }
             throw "expected release ZIPs: $($expectedNames -join ', '); found: $found"
           }
@@ -124,8 +225,8 @@ jobs:
           "make_latest=$makeLatest" >> $env:GITHUB_OUTPUT
           Write-Host "Release tag: $tag; prerelease=$prerelease; make_latest=$makeLatest"
 
-      # Upload the completed ZIPs directly to the Release; a workflow artifact
-      # would wrap the three distributable files in another archive.
+      # Upload the completed ZIPs directly to the Release; the intermediate
+      # artifact only transfers the single VC6 package between isolated jobs.
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
@@ -139,3 +240,4 @@ jobs:
             ${{ steps.release_packages.outputs.combined }}
             ${{ steps.release_packages.outputs.x86 }}
             ${{ steps.release_packages.outputs.x64 }}
+            ${{ steps.release_packages.outputs.vc6 }}
