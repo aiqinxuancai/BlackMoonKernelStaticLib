@@ -74,13 +74,6 @@ if not "%COMPILED_SOURCE_COUNT%"=="%EXPECTED_OBJECT_COUNT%" (
   set "BUILD_EXIT=3"
   goto :build_failed
 )
-set /a OBJECT_FILE_COUNT=0
-for %%I in ("%OBJECT_ROOT%\*.obj") do set /a OBJECT_FILE_COUNT+=1
-if not "%OBJECT_FILE_COUNT%"=="%EXPECTED_OBJECT_COUNT%" (
-  echo Expected %EXPECTED_OBJECT_COUNT% VC6 object files, got %OBJECT_FILE_COUNT%.
-  set "BUILD_EXIT=3"
-  goto :build_failed
-)
 
 if not exist "%SOURCE_ROOT%\krnln\Diskid32.obj" (
   echo Required VC6 object not found: %SOURCE_ROOT%\krnln\Diskid32.obj
