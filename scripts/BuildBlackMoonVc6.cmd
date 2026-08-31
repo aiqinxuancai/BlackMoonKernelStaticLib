@@ -62,8 +62,8 @@ if errorlevel 1 goto :build_failed
 
 for /f "usebackq delims=" %%S in ("%SOURCE_LIST%") do (
   set "RELATIVE_SOURCE=%%S"
-  for %%I in ("%SOURCE_ROOT%\Project\!RELATIVE_SOURCE!") do set "SOURCE_FILE=%%~fI"
-  if /I not "!SOURCE_FILE!"=="%SOURCE_ROOT%\krnln\StdAfx.cpp" (
+  if /I not "!RELATIVE_SOURCE!"=="..\krnln\StdAfx.cpp" (
+    for %%I in ("%SOURCE_ROOT%\Project\!RELATIVE_SOURCE!") do set "SOURCE_FILE=%%~fI"
     call :CompileSource "!SOURCE_FILE!" /Yustdafx.h
     if errorlevel 1 goto :build_failed
   )
