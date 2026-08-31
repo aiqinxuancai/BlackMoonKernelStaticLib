@@ -57,6 +57,44 @@ jobs:
             -OutputRoot "$PWD\artifacts\release"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Resolve release packages
+        id: release_packages
+        shell: pwsh
+        run: |
+          $releaseRoot = Join-Path $PWD 'artifacts\release'
+          $manifestPath = Join-Path $releaseRoot 'blackmoon-package.json'
+          if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+            throw "release manifest not found: $manifestPath"
+          }
+          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          $version = [string]$manifest.version
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            throw 'release manifest has no version'
+          }
+
+          $safeVersion = $version -replace '[^A-Za-z0-9_.-]', '-'
+          $baseName = "BlackMoonKernelStaticLib-$safeVersion"
+          $expectedPackages = [ordered]@{
+            combined = "$baseName.zip"
+            x86 = "$baseName-x86.zip"
+            x64 = "$baseName-x64.zip"
+          }
+          $expectedNames = @($expectedPackages.Values | ForEach-Object { [string]$_ })
+          $actualPackages = @(Get-ChildItem -LiteralPath $releaseRoot -Filter 'BlackMoonKernelStaticLib-*.zip' -File |
+            Sort-Object Name)
+          $missing = @($expectedNames | Where-Object { -not (Test-Path -LiteralPath (Join-Path $releaseRoot $_) -PathType Leaf) })
+          $unexpected = @($actualPackages | Where-Object { $_.Name -notin $expectedNames })
+
+          if ($actualPackages.Count -ne 3 -or $missing.Count -gt 0 -or $unexpected.Count -gt 0) {
+            $found = if ($actualPackages.Count -gt 0) { $actualPackages.Name -join ', ' } else { '<none>' }
+            throw "expected release ZIPs: $($expectedNames -join ', '); found: $found"
+          }
+
+          foreach ($package in $expectedPackages.GetEnumerator()) {
+            "$($package.Key)=artifacts/release/$($package.Value)" >> $env:GITHUB_OUTPUT
+          }
+          Write-Host "Release packages: $($expectedNames -join ', ')"
+
       - name: Resolve release channel
         id: release_channel
         if: startsWith(github.ref, 'refs/tags/')
@@ -86,14 +124,8 @@ jobs:
           "make_latest=$makeLatest" >> $env:GITHUB_OUTPUT
           Write-Host "Release tag: $tag; prerelease=$prerelease; make_latest=$makeLatest"
 
-      - name: Upload release packages as workflow artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: BlackMoonKernelStaticLib-${{ github.ref_name }}
-          path: artifacts/release/*.zip
-          if-no-files-found: error
-          retention-days: 30
-
+      # Upload the completed ZIPs directly to the Release; a workflow artifact
+      # would wrap the three distributable files in another archive.
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
@@ -104,4 +136,6 @@ jobs:
           make_latest: ${{ steps.release_channel.outputs.make_latest }}
           fail_on_unmatched_files: true
           files: |
-            artifacts/release/*.zip
+            ${{ steps.release_packages.outputs.combined }}
+            ${{ steps.release_packages.outputs.x86 }}
+            ${{ steps.release_packages.outputs.x64 }}
