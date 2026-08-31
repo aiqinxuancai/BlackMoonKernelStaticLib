@@ -32,10 +32,9 @@ if exist "%SOURCE_ROOT%\Release\krnln.lib" del /q "%SOURCE_ROOT%\Release\krnln.l
 if exist "%SOURCE_ROOT%\Project\Release" rmdir /s /q "%SOURCE_ROOT%\Project\Release"
 
 call "%VC6_ROOT%\setup.bat"
-set "PATH=%VC6_ROOT%\BIN;%PATH%"
+set "PATH=%VC6_ROOT%\BIN;%VC6_ROOT%\MFC\BIN;%PATH%"
 set "INCLUDE=%VC6_ROOT%\INCLUDE;%VC6_ROOT%\MFC\INCLUDE;%VC6_ROOT%\ATL\INCLUDE"
 set "LIB=%VC6_ROOT%\LIB;%VC6_ROOT%\MFC\LIB"
-chcp 936 >nul
 
 echo Building krnln - Win32 Release with Visual C++ 6.0...
 msdev.exe "%SOURCE_ROOT%\krnln_VC6.dsw" /MAKE "krnln - Win32 Release" /OUT "%OUTPUT_ROOT%\logs\krnln-vc6.log"

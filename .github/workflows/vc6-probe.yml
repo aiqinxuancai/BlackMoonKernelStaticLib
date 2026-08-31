@@ -24,7 +24,7 @@ jobs:
           set -euo pipefail
           docker run --rm \
             giulioz/vc6-docker@sha256:dc7f878014f065fe17af5ed758d9a415fe20afcf913170e82052e8c32d3b45af \
-            bash -lc 'wine --version && test -f /opt/vc/BIN/MSDEV.EXE && test -d /opt/vc/INCLUDE && test -d /opt/vc/LIB'
+            bash -lc 'wine --version && test -f /opt/vc/BIN/MSDEV.EXE && test -f /opt/vc/MFC/BIN/MFC42.DLL && test -d /opt/vc/INCLUDE && test -d /opt/vc/LIB'
 
       - name: Build VC6 krnln release library
         shell: bash
