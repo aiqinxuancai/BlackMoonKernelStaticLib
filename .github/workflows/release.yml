@@ -101,7 +101,7 @@ jobs:
             zip -q -9 "../$package_name" krnln.lib LICENSE README.md blackmoon-vc6-package.json
           )
           test -s "artifacts/vc6/$package_name"
-          "package_name=$package_name" >> "$GITHUB_OUTPUT"
+          echo "package_name=$package_name" >> "$GITHUB_OUTPUT"
 
       - name: Upload VC6 release package for publishing
         uses: actions/upload-artifact@v4
